@@ -38,23 +38,43 @@ data class MeasurementInputs(
     val lingkarPergelangan: Double = 0.0
 )
 
-data class PatternPoint(val id: String, val label: String, val xCm: Float, val yCm: Float)
+/** A named point of a pattern, in centimetres. x grows away from the centre line, y grows downward. */
+data class PatternPoint(val id: String, val x: Double, val y: Double)
 
-sealed class PatternSegment {
-    data class Line(val from: String, val to: String) : PatternSegment()
-    data class Curve(val from: String, val to: String, val bulge: Float = 0.25f) : PatternSegment()
-}
+/** How a path is drawn: the cutting line, a construction (guide) line, or a dart to fold. */
+enum class Stroke { OUTLINE, CONSTRUCTION, DART }
+
+/** A path through named points. A smooth path is drawn as a curve through every point. */
+data class PatternPath(val pointIds: List<String>, val stroke: Stroke, val smooth: Boolean = false)
 
 data class PatternDrawing(
     val title: String,
     val points: List<PatternPoint>,
-    val segments: List<PatternSegment>,
+    val paths: List<PatternPath>,
     val allValues: LinkedHashMap<String, Double>
-)
+) {
+    private val byId = points.associateBy { it.id }
+
+    fun point(id: String): PatternPoint = byId[id] ?: error("$title has no point $id")
+
+    /** Every path as a polyline in centimetres, curves already sampled. */
+    fun polylines(): List<Pair<PatternPath, List<Pair<Double, Double>>>> = paths.map { path ->
+        val pts = path.pointIds.map { point(it).let { p -> p.x to p.y } }
+        path to if (path.smooth) PatternGeometry.catmullRom(pts) else pts
+    }
+
+    /** Smallest box holding every point: (minX, minY, maxX, maxY). */
+    fun bounds(): List<Double> {
+        val lines = polylines().flatMap { it.second }
+        return listOf(lines.minOf { it.first }, lines.minOf { it.second }, lines.maxOf { it.first }, lines.maxOf { it.second })
+    }
+}
 
 data class KebayaPatternSet(
     val front: PatternDrawing,
     val back: PatternDrawing,
     val sleeve: PatternDrawing,
     val kutubaru: PatternDrawing
-)
+) {
+    val all: List<PatternDrawing> get() = listOf(front, back, sleeve, kutubaru)
+}

@@ -1,7 +1,7 @@
 package com.smartkebaya.pattern.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -10,81 +10,104 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import com.smartkebaya.pattern.util.PlatformUtil
-import org.jetbrains.compose.resources.painterResource
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartkebaya.pattern.model.PatternDrawing
+import com.smartkebaya.pattern.model.Stroke
 import com.smartkebaya.pattern.model.UnitSystem
-import org.jetbrains.compose.resources.DrawableResource
+import kotlin.math.min
 
-private val labelPositions = mapOf(
-    "Pola Depan" to mapOf(
-        "A-B" to (0.75f to 0.12f),
-        "A-D" to (0.75f to 0.20f),
-        "B-C" to (0.45f to 0.04f),
-        "C-I" to (0.45f to 0.12f),
-        "D-G" to (0.75f to 0.30f),
-        "G-H" to (0.55f to 0.25f),
-        "F-J" to (0.55f to 0.40f),
-        "D-E" to (0.75f to 0.40f),
-        "E-F" to (0.75f to 0.48f),
-        "E-L" to (0.30f to 0.65f),
-        "E-T" to (0.75f to 0.68f),
-        "T-U" to (0.45f to 0.70f),
-        "T-V" to (0.45f to 0.77f),
-        "E-R" to (0.75f to 0.55f),
-        "R-S" to (0.30f to 0.50f),
-        "E-M" to (0.75f to 0.80f),
-        "M-P" to (0.45f to 0.85f),
-        "E-N" to (0.75f to 0.90f),
-        "N-O" to (0.45f to 0.98f),
-        "N-Q" to (0.75f to 0.99f)
-    ),
-    "Pola Belakang" to mapOf(
-        "X-N" to (0.77f to 0.01f),
-        "X-K" to (0.77f to 0.10f),
-        "N-D" to (0.55f to 0.10f),
-        "D-Q" to (0.55f to 0.18f),
-        "J-P" to (0.55f to 0.27f),
-        "B-T" to (0.28f to 0.35f),
-        "K-M" to (0.77f to 0.40f),
-        "M-B" to (0.77f to 0.50f),
-        "M-Y" to (0.28f to 0.60f),
-        "M-M'" to (0.77f to 0.60f),
-        "B'-O" to (0.45f to 0.40f),
-        "M'-O'" to (0.65f to 0.77f),
-        "M'-Y'" to (0.45f to 0.68f),
-        "M-C" to (0.77f to 0.70f),
-        "C-H" to (0.28f to 0.70f),
-        "H-I" to (0.50f to 0.87f),
-        "C-N" to (0.28f to 0.80f),
-        "K-U" to (0.33f to 0.15f)
-    ),
-    "Pola Lengan" to mapOf(
-        "A-F" to (0.50f to 0.80f),
-        "A-B" to (0.50f to 0.20f),
-        "A-D" to (0.78f to 0.10f),
-        "A-C" to (0.22f to 0.10f),
-        "M" to (0.35f to 0.01f),
-        "N" to (0.68f to 0.01f),
-        "P" to (0.90f to 0.22f),
-        "R" to (0.12f to 0.22f),
-        "A-E" to (0.50f to 0.45f),
-        "I-E-J" to (0.50f to 0.60f),
-        "F-G" to (0.15f to 0.88f),
-        "F-H" to (0.85f to 0.88f),
-        "G-H" to (0.50f to 0.88f)
-    )
-)
+/** Helper points that shape a curve but are not drafting points a tailor marks. */
+private val hiddenPoints = setOf("neck", "armpit")
+
+/** Mirrored points share a letter with their twin; "W2" is labelled "W". */
+private fun labelOf(id: String) = id.removeSuffix("2")
+
+/**
+ * Draws a pattern piece to scale from its drafted points. Bodice pieces are mirrored so the centre line
+ * is on the right, as in the reference drafts.
+ */
+@Composable
+fun PatternDrawingCanvas(drawing: PatternDrawing, modifier: Modifier = Modifier) {
+    val (minX, minY, maxX, maxY) = drawing.bounds()
+    // Bodice pieces have every drafting point on one side of the centre line (x >= 0). Curve samples
+    // can overshoot a hair past it, so decide on the points, not the samples.
+    val mirror = drawing.points.all { it.x >= 0.0 }
+    val widthCm = maxX - minX
+    val heightCm = maxY - minY
+    val outline = MaterialTheme.colorScheme.primary
+    val guide = MaterialTheme.colorScheme.outline
+    val dart = MaterialTheme.colorScheme.tertiary
+    val ink = MaterialTheme.colorScheme.onSurface
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ink)
+
+    Canvas(
+        modifier
+            .clipToBounds()
+            .semantics { contentDescription = "${drawing.title}, digambar sesuai ukuran" }
+    ) {
+        val pad = 28.dp.toPx()
+        val scaleBarSpace = 24.dp.toPx()
+        val scale = min((size.width - 2 * pad) / widthCm, (size.height - 2 * pad - scaleBarSpace) / heightCm).toFloat()
+        // Centre the piece horizontally in whatever width is left over.
+        val left = (size.width - (widthCm * scale).toFloat()) / 2
+        fun toScreen(x: Double, y: Double) = Offset(
+            left + ((if (mirror) maxX - x else x - minX) * scale).toFloat(),
+            pad + ((y - minY) * scale).toFloat()
+        )
+
+        drawing.polylines().sortedBy { (path, _) -> path.stroke != Stroke.CONSTRUCTION }.forEach { (path, line) ->
+            val shape = Path().apply {
+                line.forEachIndexed { i, (x, y) ->
+                    val o = toScreen(x, y)
+                    if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y)
+                }
+            }
+            when (path.stroke) {
+                Stroke.CONSTRUCTION -> drawPath(
+                    shape, guide.copy(alpha = 0.7f),
+                    style = DrawStroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())))
+                )
+                Stroke.DART -> drawPath(shape, dart, style = DrawStroke(1.8.dp.toPx(), join = StrokeJoin.Round))
+                Stroke.OUTLINE -> drawPath(shape, outline, style = DrawStroke(2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+        }
+
+        drawing.points.filter { it.id !in hiddenPoints }.forEach { point ->
+            val o = toScreen(point.x, point.y)
+            drawCircle(ink, radius = 2.5.dp.toPx(), center = o)
+            drawText(textMeasurer, labelOf(point.id), topLeft = o + Offset(4.dp.toPx(), -14.dp.toPx()), style = labelStyle)
+        }
+
+        // Scale bar: 10 cm at the drawing's scale.
+        val barY = size.height - 12.dp.toPx()
+        val barStart = Offset(left, barY)
+        val barEnd = Offset(left + 10f * scale, barY)
+        drawLine(ink, barStart, barEnd, strokeWidth = 2.dp.toPx())
+        drawLine(ink, barStart - Offset(0f, 4.dp.toPx()), barStart + Offset(0f, 4.dp.toPx()), strokeWidth = 2.dp.toPx())
+        drawLine(ink, barEnd - Offset(0f, 4.dp.toPx()), barEnd + Offset(0f, 4.dp.toPx()), strokeWidth = 2.dp.toPx())
+        drawText(textMeasurer, "10 cm", topLeft = barEnd + Offset(6.dp.toPx(), -8.dp.toPx()), style = labelStyle.copy(fontWeight = FontWeight.Normal))
+    }
+}
 
 @Composable
 fun PatternCanvasCard(
     drawing: PatternDrawing,
-    imageRes: DrawableResource,
     unit: UnitSystem,
     modifier: Modifier = Modifier
 ) {
@@ -98,89 +121,37 @@ fun PatternCanvasCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    drawing.title.uppercase(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    letterSpacing = 1.sp
-                )
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = "PREVIEW POLA",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
+            Text(
+                drawing.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                "Garis tebal: garis potong. Putus-putus: garis bantu. Garis tipis berwarna: kupnat.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
 
-            BoxWithConstraints(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-                    .padding(8.dp)
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(imageRes),
-                    contentDescription = drawing.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
-                
-                val currentLabels = labelPositions[drawing.title]
-                if (currentLabels != null) {
-                    drawing.allValues.forEach { (key, value) ->
-                        currentLabels[key]?.let { pos ->
-                            Surface(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .offset(
-                                        x = (this.maxWidth * pos.first) - 20.dp,
-                                        y = (this.maxHeight * pos.second) - 10.dp
-                                    ),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                                shape = RoundedCornerShape(4.dp),
-                                shadowElevation = 2.dp
-                            ) {
-                                Text(
-                                    text = "$key: ${((value * 10).toInt() / 10.0)}",
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                    }
-                }
+                PatternDrawingCanvas(drawing, Modifier.fillMaxWidth().height(560.dp))
             }
-            
+
             Spacer(Modifier.height(20.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(4.dp, 16.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "KETERANGAN UKURAN DETAIL",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.secondary,
-                    letterSpacing = 0.5.sp
-                )
-            }
+            Text(
+                "Rincian ukuran",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.secondary
+            )
             Spacer(Modifier.height(12.dp))
             PatternValueTable(drawing.allValues, unit)
         }
@@ -194,7 +165,6 @@ private fun PatternValueTable(values: Map<String, Double>, unit: UnitSystem) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 rowEntries.forEach { (label, value) ->
                     val factor = if (unit == UnitSystem.INCH) 1 / 2.54 else 1.0
-                    val displayValue = value * factor
                     val unitLabel = if (unit == UnitSystem.INCH) "in" else "cm"
                     Surface(
                         modifier = Modifier.weight(1f),
@@ -202,7 +172,7 @@ private fun PatternValueTable(values: Map<String, Double>, unit: UnitSystem) {
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            "$label: ${((displayValue * 100).toInt() / 100.0)} $unitLabel",
+                            "$label: ${((value * factor * 100).toInt() / 100.0)} $unitLabel",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(8.dp),

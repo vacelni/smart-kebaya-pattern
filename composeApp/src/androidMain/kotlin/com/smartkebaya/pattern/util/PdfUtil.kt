@@ -2,13 +2,14 @@ package com.smartkebaya.pattern.util
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
-import com.smartkebaya.pattern.R
 import com.smartkebaya.pattern.model.*
 import java.io.File
 import java.io.FileOutputStream
@@ -16,70 +17,10 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 object PdfUtil {
-
-    private val labelPositions = mapOf(
-        "Pola Depan" to mapOf(
-            "A-B" to (0.75f to 0.12f),
-            "A-D" to (0.75f to 0.20f),
-            "B-C" to (0.45f to 0.04f),
-            "C-I" to (0.45f to 0.12f),
-            "D-G" to (0.75f to 0.30f),
-            "G-H" to (0.55f to 0.25f),
-            "F-J" to (0.55f to 0.40f),
-            "D-E" to (0.75f to 0.40f),
-            "E-F" to (0.75f to 0.48f),
-            "E-L" to (0.30f to 0.65f),
-            "E-T" to (0.75f to 0.68f),
-            "T-U" to (0.45f to 0.70f),
-            "T-V" to (0.45f to 0.77f),
-            "E-R" to (0.75f to 0.55f),
-            "R-S" to (0.30f to 0.50f),
-            "E-M" to (0.75f to 0.80f),
-            "M-P" to (0.45f to 0.85f),
-            "E-N" to (0.75f to 0.90f),
-            "N-O" to (0.45f to 0.98f),
-            "N-Q" to (0.75f to 0.99f)
-        ),
-        "Pola Belakang" to mapOf(
-            "X-N" to (0.77f to 0.01f),
-            "X-K" to (0.77f to 0.10f),
-            "N-D" to (0.55f to 0.10f),
-            "D-Q" to (0.55f to 0.18f),
-            "J-P" to (0.55f to 0.27f),
-            "B-T" to (0.28f to 0.35f),
-            "K-M" to (0.77f to 0.40f),
-            "M-B" to (0.77f to 0.50f),
-            "M-Y" to (0.28f to 0.60f),
-            "M-M'" to (0.77f to 0.60f),
-            "B'-O" to (0.45f to 0.40f),
-            "M'-O'" to (0.65f to 0.77f),
-            "M'-Y'" to (0.45f to 0.68f),
-            "M-C" to (0.77f to 0.70f),
-            "C-H" to (0.28f to 0.70f),
-            "H-I" to (0.50f to 0.87f),
-            "C-N" to (0.28f to 0.80f),
-            "K-U" to (0.33f to 0.15f)
-        ),
-        "Pola Lengan" to mapOf(
-            "A-F" to (0.50f to 0.80f),
-            "A-B" to (0.50f to 0.20f),
-            "A-D" to (0.78f to 0.10f),
-            "A-C" to (0.22f to 0.10f),
-            "M" to (0.35f to 0.01f),
-            "N" to (0.68f to 0.01f),
-            "P" to (0.90f to 0.22f),
-            "R" to (0.12f to 0.22f),
-            "A-E" to (0.50f to 0.45f),
-            "I-E-J" to (0.50f to 0.60f),
-            "F-G" to (0.15f to 0.88f),
-            "F-H" to (0.85f to 0.88f),
-            "G-H" to (0.50f to 0.88f)
-        )
-    )
-
-
 
     fun generatePatternPdf(
         context: Context,
@@ -95,10 +36,10 @@ object PdfUtil {
             if (!exists()) mkdirs()
         }
 
-        addPatternPages(document, pageWidth, pageHeight, patternSet.front, unit, context)
-        addPatternPages(document, pageWidth, pageHeight, patternSet.back, unit, context)
-        addPatternPages(document, pageWidth, pageHeight, patternSet.sleeve, unit, context)
-        addPatternPages(document, pageWidth, pageHeight, patternSet.kutubaru, unit, context)
+        addPatternPages(document, pageWidth, pageHeight, patternSet.front, unit)
+        addPatternPages(document, pageWidth, pageHeight, patternSet.back, unit)
+        addPatternPages(document, pageWidth, pageHeight, patternSet.sleeve, unit)
+        addPatternPages(document, pageWidth, pageHeight, patternSet.kutubaru, unit)
 
         val fileName = "kebaya_pattern_${System.currentTimeMillis()}.pdf"
         val file = File(patternsDir, fileName)
@@ -136,8 +77,7 @@ object PdfUtil {
         w: Int,
         h: Int,
         drawing: PatternDrawing,
-        unit: UnitSystem,
-        context: Context
+        unit: UnitSystem
     ) {
         val margin = 50f
         val titlePaint = Paint().apply { 
@@ -169,73 +109,7 @@ object PdfUtil {
         canvas1.drawLine(margin, currentY, w - margin, currentY, linePaint)
         currentY += 40f
 
-        val imageRes = when (drawing.title) {
-            "Pola Depan" -> R.drawable.pola_depan
-            "Pola Belakang" -> R.drawable.pola_belakang
-            "Pola Lengan" -> R.drawable.pola_lengan
-            else -> R.drawable.pola_kutubaru
-        }
-        
-        val bitmap = BitmapFactory.decodeResource(context.resources, imageRes)
-        if (bitmap != null) {
-            val bitmapWidth = bitmap.width.toFloat()
-            val bitmapHeight = bitmap.height.toFloat()
-            val bitmapAspectRatio = bitmapHeight / bitmapWidth
-
-            val availableWidth = w - 2 * margin
-            val availableHeight = h - currentY - margin - 40f // leave some space at bottom
-            
-            val scale: Float
-            if (availableWidth * bitmapAspectRatio <= availableHeight) {
-                scale = availableWidth / bitmapWidth
-            } else {
-                scale = availableHeight / bitmapHeight
-            }
-
-            val finalImageWidth = bitmapWidth * scale
-            val finalImageHeight = bitmapHeight * scale
-            val imageX = margin + (availableWidth - finalImageWidth) / 2
-            val imageY = currentY
-
-            val rect = RectF(imageX, imageY, imageX + finalImageWidth, imageY + finalImageHeight)
-            
-            // Background area
-            val bgPaint = Paint().apply { color = Color.rgb(248, 250, 252) }
-            canvas1.drawRoundRect(RectF(margin, currentY - 10f, w - margin, imageY + finalImageHeight + 10f), 12f, 12f, bgPaint)
-            
-            canvas1.drawBitmap(bitmap, null, rect, null)
-            
-            val currentLabels = labelPositions[drawing.title]
-            if (currentLabels != null) {
-                val labelPaint = Paint().apply {
-                    textSize = 7f
-                    color = Color.BLACK
-                    isFakeBoldText = true
-                }
-                val labelBgPaint = Paint().apply { color = Color.WHITE; alpha = 200 }
-                val labelBorderPaint = Paint().apply {
-                    color = Color.rgb(59, 130, 246)
-                    style = Paint.Style.STROKE
-                    strokeWidth = 0.5f
-                }
-
-                drawing.allValues.forEach { (key, value) ->
-                    currentLabels[key]?.let { pos ->
-                        // Match PatternCanvas offset logic: (maxWidth * pos.first) - 20.dp
-                        val lx = imageX + (finalImageWidth * pos.first) - 20f
-                        val ly = imageY + (finalImageHeight * pos.second) - 10f
-                        val text = "$key: ${"%.1f".format(value)}"
-                        val textWidth = labelPaint.measureText(text)
-                        
-                        // Box with padding matching UI: horizontal=5.dp, vertical=2.dp
-                        val lRect = RectF(lx, ly, lx + textWidth + 10f, ly + 12f)
-                        canvas1.drawRect(lRect, labelBgPaint)
-                        canvas1.drawRect(lRect, labelBorderPaint)
-                        canvas1.drawText(text, lx + 5f, ly + 9f, labelPaint)
-                    }
-                }
-            }
-        }
+        drawVectorPattern(canvas1, drawing, RectF(margin, currentY, w - margin, h - margin - 30f))
         document.finishPage(page1)
 
         // --- Page 2: Detail Measurements Table ---
@@ -286,5 +160,35 @@ object PdfUtil {
         }
         
         document.finishPage(page2)
+    }
+
+    /** Mirror of PatternDrawingCanvas for the PDF: the same drafted points, drawn as vectors. */
+    private fun drawVectorPattern(canvas: Canvas, drawing: PatternDrawing, area: RectF) {
+        val (minX, minY, maxX, maxY) = drawing.bounds()
+        val mirror = minX >= 0.0
+        val scale = min(area.width() / (maxX - minX), area.height() / (maxY - minY)).toFloat() // pt per cm
+        val offsetX = area.left + (area.width() - ((maxX - minX) * scale).toFloat()) / 2
+        fun sx(x: Double) = offsetX + ((if (mirror) maxX - x else x - minX) * scale).toFloat()
+        fun sy(y: Double) = area.top + ((y - minY) * scale).toFloat()
+
+        val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.6f; color = Color.rgb(176, 32, 48); strokeJoin = Paint.Join.ROUND }
+        val guide = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.6f; color = Color.GRAY; pathEffect = DashPathEffect(floatArrayOf(4f, 3f), 0f) }
+        val dart = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = Color.rgb(30, 90, 160) }
+        val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 8f; isFakeBoldText = true; color = Color.BLACK }
+
+        drawing.polylines().forEach { (path, line) ->
+            val shape = Path()
+            line.forEachIndexed { i, (x, y) -> if (i == 0) shape.moveTo(sx(x), sy(y)) else shape.lineTo(sx(x), sy(y)) }
+            canvas.drawPath(shape, when (path.stroke) { Stroke.OUTLINE -> outline; Stroke.CONSTRUCTION -> guide; Stroke.DART -> dart })
+        }
+        drawing.points.filter { it.id != "neck" && it.id != "armpit" }.forEach { point ->
+            canvas.drawCircle(sx(point.x), sy(point.y), 1.5f, label)
+            canvas.drawText(point.id.removeSuffix("2"), sx(point.x) + 3f, sy(point.y) - 3f, label)
+        }
+
+        // 10 cm scale bar and the drawing's scale (1 cm = 28.35 pt on paper).
+        val barY = area.bottom + 20f
+        canvas.drawLine(area.left, barY, area.left + 10 * scale, barY, outline)
+        canvas.drawText("10 cm   (skala ±1:${(28.35f / scale).roundToInt()})", area.left + 10 * scale + 6f, barY + 3f, label)
     }
 }

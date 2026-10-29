@@ -251,7 +251,8 @@ fun MainScreen(viewModel: KebayaViewModel = viewModel()) {
                                         field = field,
                                         value = state.rawInputs[field] ?: "",
                                         onValueChange = { viewModel.onInputChange(field, it) },
-                                        onHelpClick = { fieldGuideToShow = field }
+                                        onHelpClick = { fieldGuideToShow = field },
+                                        error = state.fieldErrors[field]
                                     )
                                 }
                             }
@@ -262,12 +263,17 @@ fun MainScreen(viewModel: KebayaViewModel = viewModel()) {
                                 field = field,
                                 value = state.rawInputs[field] ?: "",
                                 onValueChange = { viewModel.onInputChange(field, it) },
-                                onHelpClick = { fieldGuideToShow = field }
+                                onHelpClick = { fieldGuideToShow = field },
+                                error = state.fieldErrors[field]
                             )
                         }
                     }
 
-                    Spacer(Modifier.height(32.dp))
+                    TextButton(onClick = { viewModel.fillExample() }) {
+                        Text("Isi contoh ukuran (M)", fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(Modifier.height(16.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -331,16 +337,8 @@ fun MainScreen(viewModel: KebayaViewModel = viewModel()) {
                         }
                         
                         Spacer(Modifier.height(24.dp))
-                        val (drawing, imageRes) = when (selectedTab) {
-                            0 -> patternSet.front to Res.drawable.pola_depan
-                            1 -> patternSet.back to Res.drawable.pola_belakang
-                            2 -> patternSet.sleeve to Res.drawable.pola_lengan
-                            else -> patternSet.kutubaru to Res.drawable.pola_kutubaru
-                        }
-                        
                         PatternCanvasCard(
-                            drawing = drawing,
-                            imageRes = imageRes,
+                            drawing = patternSet.all[selectedTab],
                             unit = state.unit
                         )
 
@@ -399,12 +397,6 @@ fun MainScreen(viewModel: KebayaViewModel = viewModel()) {
 @Composable
 fun PrintLayout(state: com.smartkebaya.pattern.viewmodel.KebayaUiState, viewModel: KebayaViewModel) {
     val patternSet = state.patternSet ?: return
-    val patterns = listOf(
-        patternSet.front to Res.drawable.pola_depan,
-        patternSet.back to Res.drawable.pola_belakang,
-        patternSet.sleeve to Res.drawable.pola_lengan,
-        patternSet.kutubaru to Res.drawable.pola_kutubaru
-    )
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(1000)
@@ -413,7 +405,7 @@ fun PrintLayout(state: com.smartkebaya.pattern.viewmodel.KebayaUiState, viewMode
     }
 
     Column(modifier = Modifier.fillMaxWidth().background(Color.White)) {
-        patterns.forEach { (drawing, res) ->
+        patternSet.all.forEach { drawing ->
             // Halaman 1: Gambar Pola
             Box(modifier = Modifier.fillMaxWidth().height(1122.dp).padding(40.dp)) { // A4 Height approx
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -421,7 +413,7 @@ fun PrintLayout(state: com.smartkebaya.pattern.viewmodel.KebayaUiState, viewMode
                     Spacer(Modifier.height(8.dp))
                     HorizontalDivider(thickness = 2.dp, color = Color.Black)
                     Spacer(Modifier.height(40.dp))
-                    PatternCanvasCard(drawing, res, state.unit, Modifier.weight(1f).fillMaxWidth())
+                    PatternCanvasCard(drawing, state.unit, Modifier.weight(1f).fillMaxWidth())
                 }
             }
             // Halaman 2: Tabel Rincian
@@ -464,7 +456,8 @@ fun MeasurementInputField(
     field: MeasurementField,
     value: String,
     onValueChange: (String) -> Unit,
-    onHelpClick: () -> Unit
+    onHelpClick: () -> Unit,
+    error: String? = null
 ) {
     Column(modifier = Modifier.padding(vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -492,6 +485,8 @@ fun MeasurementInputField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
+            isError = error != null,
+            supportingText = error?.let { { Text(it) } },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp),

@@ -6,9 +6,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlin.math.round
 
 data class KebayaUiState(
     val rawInputs: Map<MeasurementField, String> = MeasurementField.entries.associateWith { "" },
+    val fieldErrors: Map<MeasurementField, String> = emptyMap(),
     val inputs: MeasurementInputs = MeasurementInputs(),
     val unit: UnitSystem = UnitSystem.CM,
     val isDarkTheme: Boolean = false,
@@ -17,57 +19,71 @@ data class KebayaUiState(
     val isPrinting: Boolean = false
 )
 
+/** Parses a typed measurement; accepts the Indonesian decimal comma ("33,5"). */
+internal fun parseMeasurement(raw: String?): Double? = raw?.trim()?.replace(',', '.')?.toDoubleOrNull()
+
+internal fun formatMeasurement(value: Double): String {
+    val rounded = round(value * 10) / 10
+    return if (rounded % 1.0 == 0.0) rounded.toInt().toString() else rounded.toString()
+}
+
 class KebayaViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(KebayaUiState())
     val uiState: StateFlow<KebayaUiState> = _uiState.asStateFlow()
 
     fun onInputChange(field: MeasurementField, raw: String) {
-        val sanitized = raw.filter { it.isDigit() || it == '.' || it == '-' }
-        _uiState.update { state -> state.copy(rawInputs = state.rawInputs + (field to sanitized)) }
+        val sanitized = raw.filter { it.isDigit() || it == '.' || it == ',' }.take(6)
+        _uiState.update { state ->
+            state.copy(rawInputs = state.rawInputs + (field to sanitized), fieldErrors = state.fieldErrors - field)
+        }
     }
 
+    /** Switches units and converts what was already typed, so the numbers keep their meaning. */
     fun toggleUnit() {
-        _uiState.update { it.copy(unit = if (it.unit == UnitSystem.CM) UnitSystem.INCH else UnitSystem.CM) }
+        _uiState.update { state ->
+            val next = if (state.unit == UnitSystem.CM) UnitSystem.INCH else UnitSystem.CM
+            val factor = if (next == UnitSystem.INCH) 1 / 2.54 else 2.54
+            val converted = state.rawInputs.mapValues { (_, raw) -> parseMeasurement(raw)?.let { formatMeasurement(it * factor) } ?: raw }
+            state.copy(unit = next, rawInputs = converted, fieldErrors = emptyMap())
+        }
     }
 
     fun toggleTheme() {
         _uiState.update { it.copy(isDarkTheme = !it.isDarkTheme) }
     }
 
+    /** Fills a standard size M so the app can be tried without measuring anyone. */
+    fun fillExample() {
+        _uiState.update { state ->
+            val factor = if (state.unit == UnitSystem.INCH) 1 / 2.54 else 1.0
+            state.copy(
+                rawInputs = MeasurementValidator.exampleCm.mapValues { (_, cm) -> formatMeasurement(cm * factor) },
+                fieldErrors = emptyMap()
+            )
+        }
+    }
+
     fun generatePattern() {
         val state = _uiState.value
-        val toCm: (Double) -> Double = { if (state.unit == UnitSystem.INCH) it * 2.54 else it }
+        val toCm = if (state.unit == UnitSystem.INCH) 2.54 else 1.0
+        val valuesCm = MeasurementField.entries.associateWith { field -> parseMeasurement(state.rawInputs[field])?.times(toCm) }
 
-        fun v(field: MeasurementField) = toCm(state.rawInputs[field]?.toDoubleOrNull() ?: 0.0)
-
-        val inputs = MeasurementInputs(
-            lingkarBadan = v(MeasurementField.LINGKAR_BADAN),
-            lingkarLeher = v(MeasurementField.LINGKAR_LEHER),
-            lebarBahu = v(MeasurementField.LEBAR_BAHU),
-            panjangDada = v(MeasurementField.PANJANG_DADA),
-            lebarDada = v(MeasurementField.LEBAR_DADA),
-            panjangPunggung = v(MeasurementField.PANJANG_PUNGGUNG),
-            lebarPunggung = v(MeasurementField.LEBAR_PUNGGUNG),
-            panjangSisi = v(MeasurementField.PANJANG_SISI),
-            lingkarPinggang = v(MeasurementField.LINGKAR_PINGGANG),
-            lingkarPinggul = v(MeasurementField.LINGKAR_PINGGUL),
-            tinggiPinggul = v(MeasurementField.TINGGI_PINGGUL),
-            panjangKebaya = v(MeasurementField.PANJANG_KEBAYA),
-            panjangLengan = v(MeasurementField.PANJANG_LENGAN),
-            lingkarKerungLengan = v(MeasurementField.LINGKAR_KERUNG_LENGAN),
-            lingkarPergelangan = v(MeasurementField.LINGKAR_PERGELANGAN)
-        )
-
-        val hasAnyValue = MeasurementField.entries.any { (state.rawInputs[it]?.toDoubleOrNull() ?: 0.0) > 0.0 }
-
-        if (!hasAnyValue) {
-            _uiState.update { it.copy(errorMessage = "Isi minimal satu ukuran badan sebelum generate pola.") }
+        val errors = MeasurementValidator.validate(valuesCm, state.unit)
+        if (errors.isNotEmpty()) {
+            _uiState.update {
+                it.copy(
+                    fieldErrors = errors,
+                    patternSet = null,
+                    errorMessage = "Periksa ${errors.size} ukuran yang ditandai sebelum membuat pola."
+                )
+            }
             return
         }
 
+        val inputs = MeasurementValidator.toInputs(valuesCm)
         _uiState.update {
-            it.copy(inputs = inputs, patternSet = KebayaCalculator.calculateAll(inputs), errorMessage = null)
+            it.copy(inputs = inputs, patternSet = KebayaCalculator.calculateAll(inputs), fieldErrors = emptyMap(), errorMessage = null)
         }
     }
 

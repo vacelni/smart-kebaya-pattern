@@ -38,6 +38,11 @@ kotlin {
                 implementation(libs.androidx.lifecycle.runtime.ktx)
             }
         }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
         val androidMain by getting {
             dependencies {
                 implementation(libs.androidx.activity.compose)
