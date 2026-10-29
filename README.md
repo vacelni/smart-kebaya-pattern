@@ -14,7 +14,7 @@
 
 ## Why
 
-Built during my internship at IT Pedia for a vocational fashion-design course (*Desain dan Produksi Busana*). Students learn to draft a kebaya by hand from a module of formulas, lettered points and reference drawings. Drafting takes a class period, and a single arithmetic slip ruins the pattern. The app does the arithmetic and the drawing, so students can check their own draft and teachers can check a whole class quickly.
+Built during my internship at IT Pedia for a vocational fashion-design course (*Desain dan Produksi Busana*). Students learn to draft a kebaya by hand from a module of formulas, lettered points and reference drawings, where one arithmetic slip spoils the whole pattern. The app does the arithmetic and the drawing, so a student can check their own draft against it.
 
 ## What it does
 
@@ -31,7 +31,7 @@ Curves are uniform Catmull-Rom splines through the drafting points, so the neckl
 
 ### Where the module disagreed with itself
 
-Turning the reference drawings into geometry exposed four places where the module's formulas and its own drawings did not match. Each one was decided with the course owner, and the drawing won every time:
+Turning the reference drawings into geometry exposed four places where the module's formulas and its own drawings did not match. In each case the drawing was followed:
 
 | Piece | Module formula | Drawing shows | Implemented |
 |---|---|---|---|
